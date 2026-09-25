@@ -28,7 +28,7 @@ default_items = [
 special_items = ["Terong", "Jeruk", "Timun"]
 
 if uploaded_file is not None:
-    st.image(uploaded_file, caption="Surat Jalan yang di-upload", use_column_width=True)
+    st.image(uploaded_file, caption="Surat Jalan yang di-upload", use_container_width=True)
     st.success("Surat jalan berhasil di-scan oleh sistem! Silakan lakukan pengecekan fisik di bawah.")
     
     with st.form("form_pengecekan"):
