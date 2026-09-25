@@ -39,7 +39,7 @@ if uploaded_file is not None:
         for i, item in enumerate(default_items, 1):
             st.markdown(f"---")
             cols = st.columns([2, 2, 3])
-            cols[0].write(**f"**{i}. {item}**")
+            cols[0].markdown(f"**{i}. {item}**")
             
             if item in special_items:
                 # Input khusus angka fisik untuk Terong, Jeruk, Timun
