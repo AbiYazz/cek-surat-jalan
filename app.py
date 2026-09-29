@@ -132,7 +132,8 @@ elif menu == "Pengecekan Surat Jalan":
                         '[{"name": "Beras", "qty": "5 karung"}]'
                     )
                     
-                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    # Menggunakan model terbaru sesuai rekomendasi Google
+                    model = genai.GenerativeModel('gemini-3.8-flash')
                     content_payload = pil_images + [prompt]
                     response = model.generate_content(content_payload)
                     raw_text = response.text.strip()
