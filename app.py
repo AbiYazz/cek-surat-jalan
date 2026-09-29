@@ -96,15 +96,18 @@ if menu == "Kelola Master Data":
 elif menu == "Pengecekan Surat Jalan":
     st.header("📄 Scan & Validasi Surat Jalan")
     
-    # Ambil API Key dari Streamlit Secrets secara otomatis
+    # Ambil dari Secrets dulu, jika kosong sediakan input manual di web
+    api_key = ""
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
     except:
-        api_key = ""
-    
+        pass
+        
     if not api_key:
-        st.error("❌ GEMINI_API_KEY belum diatur di Streamlit Secrets! Harap masukkan API key di bagian Settings -> Secrets aplikasi Streamlit Cloud Anda.")
-        st.stop()
+        api_key = st.text_input("🔑 Masukkan Google Gemini API Key Anda:", type="password")
+        if not api_key:
+            st.warning("⚠️ Masukkan API Key terlebih dahulu untuk mengaktifkan fitur scan AI Vision.")
+            st.stop()
 
     uploaded_files = st.file_uploader(
         "Upload foto surat jalan (bisa lebih dari satu halaman)", 
@@ -115,7 +118,6 @@ elif menu == "Pengecekan Surat Jalan":
     if uploaded_files:
         genai.configure(api_key=api_key)
         
-        # Tombol aksi scan
         if st.button("🔍 Proses & Scan Surat Jalan", type="primary"):
             with st.spinner("AI sedang membaca dan memvalidasi dokumen surat jalan..."):
                 try:
@@ -131,19 +133,18 @@ elif menu == "Pengecekan Surat Jalan":
                         '[{"name": "Beras", "qty": "5 karung"}]'
                     )
                     
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    # Menggunakan model stabil gemini-1.5-flash yang kompatibel luas
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     content_payload = pil_images + [prompt]
                     response = model.generate_content(content_payload)
                     raw_text = response.text.strip()
                     
                     if "INVALID_SURAT_JALAN" in raw_text or not raw_text:
                         st.error("❌ Dokumen ditolak! Foto yang di-upload bukan merupakan Surat Jalan yang valid. Silakan upload ulang foto surat jalan yang benar.")
-                        # Hapus session state sebelumnya jika ada
                         if "scanned_items" in st.session_state:
                             del st.session_state.scanned_items
                         st.stop()
                     
-                    # Bersihkan markdown json jika terbawa
                     if "```json" in raw_text:
                         raw_text = raw_text.split("```json")[1].split("```")[0].strip()
                     elif "```" in raw_text:
@@ -157,7 +158,6 @@ elif menu == "Pengecekan Surat Jalan":
                     st.error(f"Terjadi kesalahan saat memproses AI Vision: {e}")
                     st.stop()
 
-    # Tampilkan form jika hasil scan sudah tersimpan di session
     if "scanned_items" in st.session_state and st.session_state.scanned_items:
         st.divider()
         st.subheader("📝 Hasil Ekstrak & Pengecekan Barang")
