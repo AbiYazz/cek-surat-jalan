@@ -96,7 +96,6 @@ if menu == "Kelola Master Data":
 elif menu == "Pengecekan Surat Jalan":
     st.header("📄 Scan & Validasi Surat Jalan")
     
-    # Ambil dari Secrets dulu, jika kosong sediakan input manual di web
     api_key = ""
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
@@ -133,8 +132,8 @@ elif menu == "Pengecekan Surat Jalan":
                         '[{"name": "Beras", "qty": "5 karung"}]'
                     )
                     
-                    # Menggunakan model stabil gemini-1.5-flash yang kompatibel luas
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Menggunakan model gemini-2.0-flash yang universal & stabil
+                    model = genai.GenerativeModel('gemini-2.0-flash')
                     content_payload = pil_images + [prompt]
                     response = model.generate_content(content_payload)
                     raw_text = response.text.strip()
@@ -206,8 +205,7 @@ elif menu == "Pengecekan Surat Jalan":
         form_data = {}
         
         for i, item in enumerate(valid_items_to_check, 1):
-            name = item["name"]
-            qty_string = item["qty"]
+            name = item["name"]->qty_string = item["qty"]
             item_type = item["type"]
             
             cols = st.columns([2, 2, 3])
