@@ -9,7 +9,6 @@ from PIL import Image
 # ---------------------------------------------------------
 MASTER_FILE = "master_data.json"
 
-# Default awal jika file belum ada
 DEFAULT_MASTER = [
     {"name": "Terong", "type": "integer"},
     {"name": "Timun", "type": "integer"},
@@ -34,7 +33,6 @@ def save_master_data(data):
     with open(MASTER_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-# Inisialisasi Master Data di Session State
 if "master_data" not in st.session_state:
     st.session_state.master_data = load_master_data()
 
@@ -45,7 +43,6 @@ st.set_page_config(page_title="Sistem Surat Jalan Restoran", page_icon="📦", l
 
 st.title("📦 Sistem Digitalisasi Surat Jalan Restoran")
 
-# Menu Navigasi Sederhana
 menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola Master Data"])
 
 # ---------------------------------------------------------
@@ -53,40 +50,36 @@ menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola 
 # ---------------------------------------------------------
 if menu == "Kelola Master Data":
     st.header("⚙️ Kelola Master Data Bahan Baku")
-    st.info("Kelola daftar bahan baku standar restoran di sini. Bahan baku dengan nama 'Terong', 'Timun', dan 'Jeruk' otomatis dikunci berjenis Integer.")
+    st.info("Bahan baku 'Terong', 'Timun', dan 'Jeruk' otomatis dikunci berjenis Integer.")
 
-    # Form Tambah Bahan Baku Baru
     with st.form("add_master_form"):
         st.subheader("Tambah Bahan Baku Baru")
         new_name = st.text_input("Nama Bahan Baku").strip()
         
-        # Otomatis tentukan tipe berdasarkan nama khusus
         if new_name.lower() in ["terong", "timun", "jeruk"]:
             auto_type = "integer"
-            st.write("Tipe Input terdeteksi otomatis: **Integer** (Karena bahan khusus)")
+            st.write("Tipe Input: **Integer** (Bahan khusus)")
         else:
             auto_type = "radio"
-            st.write("Tipe Input terdeteksi otomatis: **Radio Button (Lengkap / Tidak Ada)**")
+            st.write("Tipe Input: **Radio Button (Lengkap / Tidak Ada)**")
             
         submitted = st.form_submit_button("Simpan ke Master Data")
         if submitted:
             if not new_name:
                 st.error("Nama bahan baku tidak boleh kosong!")
             else:
-                # Cek duplikat
                 existing_names = [item["name"].lower() for item in st.session_state.master_data]
                 if new_name.lower() in existing_names:
-                    st.error(f"Gagal! Bahan baku dengan nama '{new_name}' sudah ada di dalam Master Data.")
+                    st.error(f"Gagal! Bahan baku '{new_name}' sudah ada di Master Data.")
                 else:
                     st.session_state.master_data.append({"name": new_name, "type": auto_type})
                     save_master_data(st.session_state.master_data)
-                    st.success(f"Berhasil menambahkan '{new_name}' ke Master Data permanen!")
+                    st.success(f"Berhasil menambahkan '{new_name}'!")
                     st.rerun()
 
     st.divider()
     st.subheader("Daftar Bahan Baku Saat Ini")
     
-    # Tampilkan tabel / list master data dengan opsi hapus
     for idx, item in enumerate(st.session_state.master_data):
         cols = st.columns([3, 2, 1])
         cols[0].write(f"**{idx+1}. {item['name']}**")
@@ -103,24 +96,26 @@ if menu == "Kelola Master Data":
 elif menu == "Pengecekan Surat Jalan":
     st.header("📄 Scan & Validasi Surat Jalan")
     
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    # Ambil API Key dari Streamlit Secrets secara otomatis
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except:
+        api_key = ""
     
     if not api_key:
-        st.warning("⚠️ GEMINI_API_KEY belum dikonfigurasi di Streamlit Secrets. Masukkan API Key untuk mengaktifkan AI Vision.")
-        api_key_input = st.text_input("Masukkan Google Gemini API Key:", type="password")
-        if api_key_input:
-            api_key = api_key_input
+        st.error("❌ GEMINI_API_KEY belum diatur di Streamlit Secrets! Harap masukkan API key di bagian Settings -> Secrets aplikasi Streamlit Cloud Anda.")
+        st.stop()
 
-    # Multi-upload foto
     uploaded_files = st.file_uploader(
-        "Upload foto surat jalan (bisa lebih dari satu jika ada beberapa halaman)", 
+        "Upload foto surat jalan (bisa lebih dari satu halaman)", 
         type=["jpg", "jpeg", "png"], 
         accept_multiple_files=True
     )
 
-    if uploaded_files and api_key:
+    if uploaded_files:
         genai.configure(api_key=api_key)
         
+        # Tombol aksi scan
         if st.button("🔍 Proses & Scan Surat Jalan", type="primary"):
             with st.spinner("AI sedang membaca dan memvalidasi dokumen surat jalan..."):
                 try:
@@ -131,9 +126,9 @@ elif menu == "Pengecekan Surat Jalan":
                         "Pertama, validasi apakah dokumen ini adalah Surat Jalan pengiriman barang/restoran yang sah. "
                         "Jika gambar ini BUKAN surat jalan (misalnya foto selfie, pemandangan, atau gambar acak), "
                         "berikan respons persis teks ini: INVALID_SURAT_JALAN. "
-                        "Jika valid, ekstrak seluruh daftar nama barang/bahan baku beserta kuantitasnya (sebagai string/teks apa adanya dari kertas, contoh: '2 dus', '5 kg', '10 pcs'). "
-                        "Keluarkan hasil dalam format JSON murni berupa list of dictionary dengan keys 'name' dan 'qty'. Contoh format: "
-                        "[{\"name\": \"Beras\", \"qty\": \"5 karung\"}] tanpa markdown backtick jika memungkinkan, atau format JSON bersih."
+                        "Jika valid, ekstrak seluruh daftar nama barang/bahan baku beserta kuantitasnya (sebagai string apa adanya dari kertas, contoh: '2 dus', '5 kg', '10 pcs'). "
+                        "Keluarkan hasil DALAM FORMAT JSON MURNI berupa list of dictionary dengan keys 'name' dan 'qty'. Contoh format: "
+                        '[{"name": "Beras", "qty": "5 karung"}]'
                     )
                     
                     model = genai.GenerativeModel('gemini-2.5-flash')
@@ -143,8 +138,12 @@ elif menu == "Pengecekan Surat Jalan":
                     
                     if "INVALID_SURAT_JALAN" in raw_text or not raw_text:
                         st.error("❌ Dokumen ditolak! Foto yang di-upload bukan merupakan Surat Jalan yang valid. Silakan upload ulang foto surat jalan yang benar.")
+                        # Hapus session state sebelumnya jika ada
+                        if "scanned_items" in st.session_state:
+                            del st.session_state.scanned_items
                         st.stop()
                     
+                    # Bersihkan markdown json jika terbawa
                     if "```json" in raw_text:
                         raw_text = raw_text.split("```json")[1].split("```")[0].strip()
                     elif "```" in raw_text:
@@ -158,6 +157,7 @@ elif menu == "Pengecekan Surat Jalan":
                     st.error(f"Terjadi kesalahan saat memproses AI Vision: {e}")
                     st.stop()
 
+    # Tampilkan form jika hasil scan sudah tersimpan di session
     if "scanned_items" in st.session_state and st.session_state.scanned_items:
         st.divider()
         st.subheader("📝 Hasil Ekstrak & Pengecekan Barang")
@@ -197,7 +197,7 @@ elif menu == "Pengecekan Surat Jalan":
                         t = "integer" if new_item_name.lower() in ["terong", "timun", "jeruk"] else "radio"
                         st.session_state.master_data.append({"name": new_item_name, "type": t})
                     save_master_data(st.session_state.master_data)
-                    st.success("Bahan baku baru berhasil disimpan permanen ke Master Data! Silakan refresh atau lanjutkan pengecekan.")
+                    st.success("Bahan baku baru berhasil disimpan permanen ke Master Data!")
                     st.rerun()
 
         st.divider()
