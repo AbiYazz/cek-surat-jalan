@@ -132,7 +132,6 @@ elif menu == "Pengecekan Surat Jalan":
                         '[{"name": "Beras", "qty": "5 karung"}]'
                     )
                     
-                    # Menggunakan model gemini-2.0-flash yang universal & stabil
                     model = genai.GenerativeModel('gemini-2.0-flash')
                     content_payload = pil_images + [prompt]
                     response = model.generate_content(content_payload)
@@ -205,7 +204,8 @@ elif menu == "Pengecekan Surat Jalan":
         form_data = {}
         
         for i, item in enumerate(valid_items_to_check, 1):
-            name = item["name"]->qty_string = item["qty"]
+            name = item["name"]
+            qty_string = item["qty"]
             item_type = item["type"]
             
             cols = st.columns([2, 2, 3])
