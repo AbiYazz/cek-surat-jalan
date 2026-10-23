@@ -1,3 +1,4 @@
+# VERSI: app_v2.py
 import streamlit as st
 import json
 import os
@@ -133,8 +134,8 @@ def cari_di_master(name):
 # ---------------------------------------------------------
 # KONFIGURASI HALAMAN
 # ---------------------------------------------------------
-st.set_page_config(page_title="Sistem Surat Jalan Restoran", page_icon="📦", layout="centered")
-st.title("📦 Sistem Digitalisasi Surat Jalan Restoran")
+st.set_page_config(page_title="Sistem Surat Jalan Restoran v2", page_icon="📦", layout="centered")
+st.title("📦 Sistem Digitalisasi Surat Jalan Restoran (v2)")
 
 menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola Master Data"])
 
