@@ -1,4 +1,4 @@
-# VERSI: app_v3.py
+# VERSI: app_v4.py
 import streamlit as st
 import json
 import os
@@ -134,10 +134,10 @@ def cari_di_master(name):
 # ---------------------------------------------------------
 # KONFIGURASI HALAMAN
 # ---------------------------------------------------------
-st.set_page_config(page_title="Sistem Surat Jalan Restoran v3", page_icon="📦", layout="centered")
-st.title("📦 Sistem Digitalisasi Surat Jalan Restoran (v3)")
+st.set_page_config(page_title="Sistem Surat Jalan Restoran v4", page_icon="📦", layout="centered")
+st.title("📦 Sistem Digitalisasi Surat Jalan Restoran (v4)")
 
-menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola Master Data"])
+menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola Master Data", "Diagnosa AI"])
 
 # ---------------------------------------------------------
 # MENU 1: KELOLA MASTER DATA
@@ -379,3 +379,74 @@ elif menu == "Pengecekan Surat Jalan":
             else:
                 st.success("✨ Laporan pengecekan berhasil divalidasi! Siap untuk dicetak ke PDF.")
                 st.json({"items": form_data, "catatan": notes})
+
+# ---------------------------------------------------------
+# MENU 3: DIAGNOSA AI (ukur kecepatan tiap model)
+# ---------------------------------------------------------
+elif menu == "Diagnosa AI":
+    st.header("🩺 Diagnosa AI")
+    st.caption("Mengukur kecepatan tiap model. Memakai sekitar 2 request per model.")
+
+    api_key = ""
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        pass
+
+    if not api_key:
+        api_key = st.text_input("🔑 Masukkan Google Gemini API Key Anda:", type="password")
+        if not api_key:
+            st.warning("Masukkan API Key dulu.")
+            st.stop()
+
+    test_img = st.file_uploader(
+        "(Opsional) Foto surat jalan untuk tes dengan gambar",
+        type=["jpg", "jpeg", "png"],
+    )
+
+    if st.button("▶️ Jalankan diagnosa", type="primary"):
+        genai.configure(api_key=api_key, transport="rest")
+
+        # 1. Daftar model yang valid di akun ini
+        st.subheader("1. Model yang tersedia di akun ini")
+        t0 = time.time()
+        try:
+            tersedia = [
+                m.name.replace("models/", "")
+                for m in genai.list_models()
+                if "generateContent" in m.supported_generation_methods
+            ]
+            st.caption(f"Daftar model diambil dalam {time.time() - t0:.1f} detik")
+            for n in MODEL_LIST:
+                if n in tersedia:
+                    st.write(f"✅ `{n}` valid")
+                else:
+                    st.write(f"❌ `{n}` TIDAK ditemukan di akun ini")
+            with st.expander("Lihat semua model yang tersedia"):
+                st.code("\n".join(tersedia))
+        except Exception as e:
+            st.error(f"Gagal mengambil daftar model ({type(e).__name__}): {str(e)[:200]}")
+
+        # 2. Kecepatan tiap model
+        st.subheader("2. Kecepatan tiap model")
+        tes = [("hanya teks", ["Balas dengan satu kata saja: OK"])]
+        if test_img:
+            gambar = resize_image(Image.open(test_img))
+            tes.append(("dengan gambar", [gambar, "Sebutkan isi gambar ini dalam satu kalimat."]))
+
+        for nama in MODEL_LIST:
+            for label, payload in tes:
+                slot = st.empty()
+                slot.write(f"⏳ `{nama}` ({label}) sedang diuji...")
+                t = time.time()
+                try:
+                    model = genai.GenerativeModel(nama)
+                    model.generate_content(payload, request_options={"timeout": 120})
+                    slot.write(f"✅ `{nama}` ({label}): **{time.time() - t:.1f} detik**")
+                except Exception as e:
+                    slot.write(
+                        f"❌ `{nama}` ({label}) gagal setelah **{time.time() - t:.1f} detik** "
+                        f"- {type(e).__name__}: {str(e)[:150]}"
+                    )
+
+        st.success("Diagnosa selesai. Kirim hasil di atas ke Claude.")
