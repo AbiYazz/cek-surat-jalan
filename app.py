@@ -1,26 +1,13 @@
-# VERSI: app_v4.py
 import streamlit as st
 import json
 import os
-import time
-import hashlib
-import requests
 import google.generativeai as genai
-from google.api_core import exceptions as gexc
 from PIL import Image
 
 # ---------------------------------------------------------
-# KONFIGURASI
+# KONFIGURASI FILE MASTER DATA (JSON)
 # ---------------------------------------------------------
 MASTER_FILE = "master_data.json"
-# Urutan model: dicoba dari atas. Kalau timeout / kuota habis / model tidak ditemukan,
-# otomatis lanjut ke model berikutnya. Cek nama yang valid dengan genai.list_models().
-MODEL_LIST = [
-    "gemini-3.8-flash-lite",   # lebih cepat, dicoba dulu
-    "gemini-3.8-flash",        # cadangan kalau lite gagal / tidak ditemukan
-]
-REQUEST_TIMEOUT = 90              # detik per model (jangan terlalu kecil, nanti proses yang lambat-tapi-jalan ikut gagal)
-INTEGER_ITEMS = ["terong", "timun", "jeruk"]
 
 DEFAULT_MASTER = [
     {"name": "Terong", "type": "integer"},
@@ -30,28 +17,8 @@ DEFAULT_MASTER = [
     {"name": "Minyak Goreng", "type": "radio"},
     {"name": "Gula Pasir", "type": "radio"},
     {"name": "Telur Ayam", "type": "radio"},
-    {"name": "Handglove", "type": "radio"},
+    {"name": "Handglove", "type": "radio"}
 ]
-
-SCAN_PROMPT = (
-    "Analisis gambar-gambar yang dilampirkan ini. "
-    "Pertama, validasi apakah dokumen ini adalah Surat Jalan pengiriman barang/restoran yang sah. "
-    "Jika gambar ini BUKAN surat jalan (misalnya foto selfie, pemandangan, atau gambar acak), "
-    "berikan respons persis teks ini: INVALID_SURAT_JALAN. "
-    "Jika valid, ekstrak seluruh daftar nama barang/bahan baku beserta kuantitasnya "
-    "(sebagai string apa adanya dari kertas, contoh: '2 dus', '5 kg', '10 pcs'). "
-    "Keluarkan hasil DALAM FORMAT JSON MURNI berupa list of dictionary dengan keys 'name' dan 'qty'. "
-    'Contoh format: [{"name": "Beras", "qty": "5 karung"}]'
-)
-
-
-# ---------------------------------------------------------
-# MASTER DATA (JSON)
-# ---------------------------------------------------------
-def save_master_data(data):
-    with open(MASTER_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
 
 def load_master_data():
     if not os.path.exists(MASTER_FILE):
@@ -59,88 +26,27 @@ def load_master_data():
     try:
         with open(MASTER_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
-        return list(DEFAULT_MASTER)
+    except:
+        return DEFAULT_MASTER
 
-
-def tipe_untuk(nama):
-    return "integer" if nama.strip().lower() in INTEGER_ITEMS else "radio"
-
+def save_master_data(data):
+    with open(MASTER_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 if "master_data" not in st.session_state:
     st.session_state.master_data = load_master_data()
 
+# ---------------------------------------------------------
+# KONFIGURASI HALAMAN STREAMLIT
+# ---------------------------------------------------------
+st.set_page_config(page_title="Sistem Surat Jalan Restoran", page_icon="📦", layout="centered")
+
+st.title("📦 Sistem Digitalisasi Surat Jalan Restoran")
+
+menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola Master Data"])
 
 # ---------------------------------------------------------
-# FUNGSI AI
-# ---------------------------------------------------------
-def resize_image(img, max_side=1024):
-    img = img.convert("RGB")
-    img.thumbnail((max_side, max_side))
-    return img
-
-
-# Error yang TIDAK perlu dicoba ke model lain (key salah, request salah, dll)
-FATAL_ERRORS = (gexc.InvalidArgument, gexc.Unauthenticated, gexc.PermissionDenied)
-
-
-def scan_surat_jalan(api_key, pil_images):
-    """Coba tiap model di MODEL_LIST sampai ada yang berhasil.
-    Return (teks_hasil, nama_model_yang_dipakai)."""
-    genai.configure(api_key=api_key, transport="rest")
-    last_error = None
-
-    for model_name in MODEL_LIST:
-        try:
-            model = genai.GenerativeModel(
-                model_name,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "temperature": 0,
-                    "max_output_tokens": 2048,
-                },
-            )
-            resp = model.generate_content(
-                pil_images + [SCAN_PROMPT],
-                request_options={"timeout": REQUEST_TIMEOUT},
-            )
-            return (resp.text or "").strip(), model_name
-        except FATAL_ERRORS:
-            raise
-        except (gexc.GoogleAPICallError, requests.exceptions.RequestException) as e:
-            # 429 (REST: TooManyRequests), 404, 5xx, timeout -> coba model berikutnya
-            last_error = e
-            continue
-
-    # Semua model gagal: lempar error terakhir supaya ditangani pemanggil
-    raise last_error
-
-
-def cari_di_master(name):
-    """Cocokkan nama dari surat jalan ke master data. Exact dulu, baru partial."""
-    n = name.strip().lower()
-    if not n:
-        return None
-    for m in st.session_state.master_data:
-        if m["name"].lower() == n:
-            return m
-    for m in st.session_state.master_data:
-        mn = m["name"].lower()
-        if mn in n or n in mn:
-            return m
-    return None
-
-
-# ---------------------------------------------------------
-# KONFIGURASI HALAMAN
-# ---------------------------------------------------------
-st.set_page_config(page_title="Sistem Surat Jalan Restoran v4", page_icon="📦", layout="centered")
-st.title("📦 Sistem Digitalisasi Surat Jalan Restoran (v4)")
-
-menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola Master Data", "Diagnosa AI"])
-
-# ---------------------------------------------------------
-# MENU 1: KELOLA MASTER DATA
+# TAB 1: KELOLA MASTER DATA (CRUD)
 # ---------------------------------------------------------
 if menu == "Kelola Master Data":
     st.header("⚙️ Kelola Master Data Bahan Baku")
@@ -149,34 +55,34 @@ if menu == "Kelola Master Data":
     with st.form("add_master_form"):
         st.subheader("Tambah Bahan Baku Baru")
         new_name = st.text_input("Nama Bahan Baku").strip()
-
-        if tipe_untuk(new_name) == "integer":
+        
+        if new_name.lower() in ["terong", "timun", "jeruk"]:
+            auto_type = "integer"
             st.write("Tipe Input: **Integer** (Bahan khusus)")
         else:
+            auto_type = "radio"
             st.write("Tipe Input: **Radio Button (Lengkap / Tidak Ada)**")
-
+            
         submitted = st.form_submit_button("Simpan ke Master Data")
         if submitted:
             if not new_name:
                 st.error("Nama bahan baku tidak boleh kosong!")
             else:
-                existing = [i["name"].lower() for i in st.session_state.master_data]
-                if new_name.lower() in existing:
+                existing_names = [item["name"].lower() for item in st.session_state.master_data]
+                if new_name.lower() in existing_names:
                     st.error(f"Gagal! Bahan baku '{new_name}' sudah ada di Master Data.")
                 else:
-                    st.session_state.master_data.append(
-                        {"name": new_name, "type": tipe_untuk(new_name)}
-                    )
+                    st.session_state.master_data.append({"name": new_name, "type": auto_type})
                     save_master_data(st.session_state.master_data)
                     st.success(f"Berhasil menambahkan '{new_name}'!")
                     st.rerun()
 
     st.divider()
     st.subheader("Daftar Bahan Baku Saat Ini")
-
+    
     for idx, item in enumerate(st.session_state.master_data):
         cols = st.columns([3, 2, 1])
-        cols[0].write(f"**{idx + 1}. {item['name']}**")
+        cols[0].write(f"**{idx+1}. {item['name']}**")
         cols[1].write(f"Tipe: `{item['type']}`")
         if cols[2].button("Hapus", key=f"del_{idx}"):
             removed = st.session_state.master_data.pop(idx)
@@ -185,17 +91,17 @@ if menu == "Kelola Master Data":
             st.rerun()
 
 # ---------------------------------------------------------
-# MENU 2: PENGECEKAN SURAT JALAN
+# TAB 2: PENGECEKAN SURAT JALAN (AI VISION + OPTIMASI KECEPATAN)
 # ---------------------------------------------------------
 elif menu == "Pengecekan Surat Jalan":
     st.header("📄 Scan & Validasi Surat Jalan")
-
+    
     api_key = ""
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
+    except:
         pass
-
+        
     if not api_key:
         api_key = st.text_input("🔑 Masukkan Google Gemini API Key Anda:", type="password")
         if not api_key:
@@ -203,149 +109,124 @@ elif menu == "Pengecekan Surat Jalan":
             st.stop()
 
     uploaded_files = st.file_uploader(
-        "Upload foto surat jalan (bisa lebih dari satu halaman)",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
+        "Upload foto surat jalan (bisa lebih dari satu halaman)", 
+        type=["jpg", "jpeg", "png"], 
+        accept_multiple_files=True
     )
 
     if uploaded_files:
+        genai.configure(api_key=api_key)
+        
         if st.button("🔍 Proses & Scan Surat Jalan", type="primary"):
-            with st.spinner("AI sedang membaca dan memvalidasi dokumen surat jalan..."):
+            with st.spinner("AI sedang membaca dan memvalidasi dokumen surat jalan secara kilat..."):
                 try:
-                    t0 = time.time()
-                    pil_images = [resize_image(Image.open(f)) for f in uploaded_files]
-                    t_resize = time.time() - t0
-                    kunci = hashlib.md5(b"".join(f.getvalue() for f in uploaded_files)).hexdigest()
-                    cache = st.session_state.setdefault("scan_cache", {})
-                    if kunci in cache:
-                        raw_text, model_dipakai = cache[kunci], "cache (tanpa kuota)"
-                    else:
-                        raw_text, model_dipakai = scan_surat_jalan(api_key, pil_images)
-                        cache[kunci] = raw_text
-                    t_total = time.time() - t0
-
-                    if not raw_text or "INVALID_SURAT_JALAN" in raw_text:
-                        st.error(
-                            "❌ Dokumen ditolak! Foto yang di-upload bukan Surat Jalan yang valid. "
-                            "Silakan upload ulang foto surat jalan yang benar."
-                        )
-                        st.session_state.pop("scanned_items", None)
+                    pil_images = []
+                    for f in uploaded_files:
+                        img = Image.open(f)
+                        # Optimasi: Resize otomatis gambar jika terlalu besar agar proses AI super cepat
+                        img.thumbnail((1024, 1024))
+                        pil_images.append(img)
+                    
+                    # Prompt baru yang jauh lebih ringkas, padat, dan cepat diproses AI
+                    prompt = (
+                        "Validasi apakah gambar ini Surat Jalan restoran yang sah. "
+                        "Jika bukan surat jalan, balas persis: INVALID_SURAT_JALAN. "
+                        "Jika valid, ekstrak daftar nama barang dan kuantitasnya (contoh kuantitas: '5 kg', '2 dus'). "
+                        "Output wajib JSON murni berupa list of dictionary dengan keys 'name' dan 'qty'. Contoh format: "
+                        '[{"name": "Beras", "qty": "5 karung"}]'
+                    )
+                    
+                    # Menggunakan model gemini-3.8-flash dengan konfigurasi suhu rendah agar respons instan
+                    model = genai.GenerativeModel('gemini-3.8-flash')
+                    generation_config = {"temperature": 0.1}
+                    
+                    content_payload = pil_images + [prompt]
+                    response = model.generate_content(content_payload, generation_config=generation_config)
+                    raw_text = response.text.strip()
+                    
+                    if "INVALID_SURAT_JALAN" in raw_text or not raw_text:
+                        st.error("❌ Dokumen ditolak! Foto yang di-upload bukan merupakan Surat Jalan yang valid. Silakan upload ulang foto surat jalan yang benar.")
+                        if "scanned_items" in st.session_state:
+                            del st.session_state.scanned_items
                         st.stop()
-
-                    # Jaga-jaga kalau model tetap membungkus dengan ```json
-                    if "```" in raw_text:
-                        raw_text = raw_text.split("```")[1]
-                        if raw_text.startswith("json"):
-                            raw_text = raw_text[4:]
-                        raw_text = raw_text.strip()
-
+                    
+                    # Bersihkan markdown json jika terbawa
+                    if "```json" in raw_text:
+                        raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in raw_text:
+                        raw_text = raw_text.split("```")[1].split("```")[0].strip()
+                        
                     scanned_items = json.loads(raw_text)
-                    if not isinstance(scanned_items, list):
-                        raise ValueError("Format hasil AI bukan list.")
-
                     st.session_state.scanned_items = scanned_items
                     st.success("✅ Surat jalan berhasil divalidasi dan diproses!")
-                    st.caption(
-                        f"Model: {model_dipakai} | Resize: {t_resize:.1f} dtk | Total: {t_total:.1f} dtk"
-                    )
-
-                except (gexc.ResourceExhausted, gexc.TooManyRequests) as e:
-                    if "PerDay" in str(e):
-                        st.error("⏳ Kuota HARIAN gratis habis untuk semua model di MODEL_LIST. Reset sekitar jam 14.00 WIB. Alternatif: pakai API key dari project Google lain, atau aktifkan billing.")
-                    else:
-                        st.error("⏳ Batas per menit tercapai. Tunggu 1 menit lalu coba lagi.")
-                    st.stop()
-                except (gexc.DeadlineExceeded, gexc.GatewayTimeout, requests.exceptions.Timeout):
-                    st.error(f"⏱️ Semua model kelamaan merespons (lebih dari {REQUEST_TIMEOUT} detik per model). Coba lagi atau pakai foto yang lebih kecil.")
-                    st.stop()
-                except gexc.NotFound:
-                    st.error("Nama model di MODEL_LIST tidak valid. Cek daftar model yang tersedia dengan genai.list_models().")
-                    st.stop()
-                except (gexc.ServiceUnavailable, gexc.InternalServerError):
-                    st.error("Server Gemini sedang sibuk. Coba lagi beberapa saat.")
-                    st.stop()
-                except json.JSONDecodeError:
-                    st.error("Hasil AI tidak bisa dibaca sebagai JSON. Coba scan ulang.")
-                    st.stop()
+                    
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat memproses AI Vision: {e}")
                     st.stop()
 
-    # -----------------------------------------------------
-    # HASIL SCAN & FORM PENGECEKAN
-    # -----------------------------------------------------
-    if st.session_state.get("scanned_items"):
+    if "scanned_items" in st.session_state and st.session_state.scanned_items:
         st.divider()
         st.subheader("📝 Hasil Ekstrak & Pengecekan Barang")
-
+        
         unknown_items = []
         valid_items_to_check = []
-        sudah_masuk = set()
-
+        
         for scanned in st.session_state.scanned_items:
-            if not isinstance(scanned, dict):
-                continue
-            name = (scanned.get("name") or "").strip()
+            name = scanned.get("name")
             qty = scanned.get("qty", "-")
-            if not name:
-                continue
-
-            matched = cari_di_master(name)
+            matched = None
+            for m in st.session_state.master_data:
+                if m["name"].lower() in name.lower() or name.lower() in m["name"].lower():
+                    matched = m
+                    break
+            
             if matched:
-                if matched["name"].lower() in sudah_masuk:
-                    continue
-                sudah_masuk.add(matched["name"].lower())
-                valid_items_to_check.append(
-                    {"name": matched["name"], "qty": qty, "type": matched["type"]}
-                )
+                valid_items_to_check.append({"name": matched["name"], "qty": qty, "type": matched["type"]})
             else:
                 unknown_items.append({"name": name, "qty": qty})
-
+                
         if unknown_items:
             st.warning("⚠️ Ditemukan bahan baku dari surat jalan yang **belum terdaftar** di Master Data:")
-
+            
             with st.form("approval_form"):
                 approved_new_items = []
                 for idx, unk in enumerate(unknown_items):
                     col_a, col_b = st.columns([3, 1])
                     col_a.markdown(f"• **{unk['name']}** (Kuantitas: {unk['qty']})")
-                    if col_b.checkbox("Tambahkan ke Master", value=True, key=f"app_{idx}"):
-                        approved_new_items.append(unk["name"])
-
-                if st.form_submit_button("Proses & Simpan Bahan Baru"):
-                    existing = {i["name"].lower() for i in st.session_state.master_data}
-                    for new_name in approved_new_items:
-                        if new_name.lower() in existing:
-                            continue
-                        existing.add(new_name.lower())
-                        st.session_state.master_data.append(
-                            {"name": new_name, "type": tipe_untuk(new_name)}
-                        )
+                    is_approved = col_b.checkbox("Tambahkan ke Master", value=True, key=f"app_{idx}")
+                    if is_approved:
+                        approved_new_items.append(unk['name'])
+                
+                submit_approval = st.form_submit_button("Proses & Simpan Bahan Baku Baru")
+                if submit_approval:
+                    for new_item_name in approved_new_items:
+                        t = "integer" if new_item_name.lower() in ["terong", "timun", "jeruk"] else "radio"
+                        st.session_state.master_data.append({"name": new_item_name, "type": t})
                     save_master_data(st.session_state.master_data)
                     st.success("Bahan baku baru berhasil disimpan permanen ke Master Data!")
                     st.rerun()
 
         st.divider()
         st.markdown("### Form Pengecekan Fisik Harian")
-
+        
         form_data = {}
-
+        
         for i, item in enumerate(valid_items_to_check, 1):
             name = item["name"]
             qty_string = item["qty"]
             item_type = item["type"]
-
+            
             cols = st.columns([2, 2, 3])
             cols[0].markdown(f"**{i}. {name}**")
             cols[1].markdown(f"*(SJ: {qty_string})*")
-
-            if item_type == "integer" or name.lower() in INTEGER_ITEMS:
+            
+            if item_type == "integer" or name.lower() in ["terong", "timun", "jeruk"]:
                 val_int = cols[2].number_input(
-                    f"Jumlah Fisik {name}",
-                    min_value=0,
-                    step=1,
+                    f"Jumlah Fisik {name}", 
+                    min_value=0, 
+                    step=1, 
                     key=f"int_{i}",
-                    label_visibility="collapsed",
+                    label_visibility="collapsed"
                 )
                 form_data[name] = {"value": val_int, "is_checked": val_int > 0}
             else:
@@ -354,99 +235,26 @@ elif menu == "Pengecekan Surat Jalan":
                     options=["Pilih Status...", "Lengkap", "Tidak Ada"],
                     index=0,
                     key=f"rad_{i}",
-                    label_visibility="collapsed",
+                    label_visibility="collapsed"
                 )
                 form_data[name] = {
-                    "value": radio_choice,
-                    "is_checked": radio_choice == "Lengkap",
+                    "value": radio_choice, 
+                    "is_checked": (radio_choice == "Lengkap")
                 }
 
         st.divider()
-
-        notes = st.text_area(
-            "Catatan / Notes Tambahan (Opsional)",
-            placeholder="Tulis catatan jika ada kendala pengiriman...",
-        )
+        
+        notes = st.text_area("Catatan / Notes Tambahan (Opsional)", placeholder="Tulis catatan jika ada kendala pengiriman...")
 
         if st.button("🖨️ Cetak / Simpan Laporan PDF", type="primary"):
-            belum_dipilih = [n for n, d in form_data.items() if d["value"] == "Pilih Status..."]
+            error_found = False
+            for name, data in form_data.items():
+                if data["value"] == "Pilih Status...":
+                    error_found = True
+                    break
 
-            if belum_dipilih:
-                st.error(
-                    "🚨 Gagal Cetak! Masih ada bahan baku yang **belum dipilih** statusnya: "
-                    + ", ".join(belum_dipilih)
-                )
+            if error_found:
+                st.error("🚨 Gagal Cetak! Masih ada bahan baku berstatus Radio Button yang **belum dipilih** (Lengkap / Tidak Ada). Harap lengkapi semua pilihan di atas!")
             else:
                 st.success("✨ Laporan pengecekan berhasil divalidasi! Siap untuk dicetak ke PDF.")
-                st.json({"items": form_data, "catatan": notes})
-
-# ---------------------------------------------------------
-# MENU 3: DIAGNOSA AI (ukur kecepatan tiap model)
-# ---------------------------------------------------------
-elif menu == "Diagnosa AI":
-    st.header("🩺 Diagnosa AI")
-    st.caption("Mengukur kecepatan tiap model. Memakai sekitar 2 request per model.")
-
-    api_key = ""
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        pass
-
-    if not api_key:
-        api_key = st.text_input("🔑 Masukkan Google Gemini API Key Anda:", type="password")
-        if not api_key:
-            st.warning("Masukkan API Key dulu.")
-            st.stop()
-
-    test_img = st.file_uploader(
-        "(Opsional) Foto surat jalan untuk tes dengan gambar",
-        type=["jpg", "jpeg", "png"],
-    )
-
-    if st.button("▶️ Jalankan diagnosa", type="primary"):
-        genai.configure(api_key=api_key, transport="rest")
-
-        # 1. Daftar model yang valid di akun ini
-        st.subheader("1. Model yang tersedia di akun ini")
-        t0 = time.time()
-        try:
-            tersedia = [
-                m.name.replace("models/", "")
-                for m in genai.list_models()
-                if "generateContent" in m.supported_generation_methods
-            ]
-            st.caption(f"Daftar model diambil dalam {time.time() - t0:.1f} detik")
-            for n in MODEL_LIST:
-                if n in tersedia:
-                    st.write(f"✅ `{n}` valid")
-                else:
-                    st.write(f"❌ `{n}` TIDAK ditemukan di akun ini")
-            with st.expander("Lihat semua model yang tersedia"):
-                st.code("\n".join(tersedia))
-        except Exception as e:
-            st.error(f"Gagal mengambil daftar model ({type(e).__name__}): {str(e)[:200]}")
-
-        # 2. Kecepatan tiap model
-        st.subheader("2. Kecepatan tiap model")
-        tes = [("hanya teks", ["Balas dengan satu kata saja: OK"])]
-        if test_img:
-            gambar = resize_image(Image.open(test_img))
-            tes.append(("dengan gambar", [gambar, "Sebutkan isi gambar ini dalam satu kalimat."]))
-
-        for nama in MODEL_LIST:
-            for label, payload in tes:
-                slot = st.empty()
-                slot.write(f"⏳ `{nama}` ({label}) sedang diuji...")
-                t = time.time()
-                try:
-                    model = genai.GenerativeModel(nama)
-                    model.generate_content(payload, request_options={"timeout": 120})
-                    slot.write(f"✅ `{nama}` ({label}): **{time.time() - t:.1f} detik**")
-                except Exception as e:
-                    slot.write(
-                        f"❌ `{nama}` ({label}) gagal setelah **{time.time() - t:.1f} detik** "
-                        f"- {type(e).__name__}: {str(e)[:150]}"
-                    )
-
-        st.success("Diagnosa selesai. Kirim hasil di atas ke Claude.")
+                st.json(form_data)
