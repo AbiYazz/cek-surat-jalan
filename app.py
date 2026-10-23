@@ -1,8 +1,10 @@
-# VERSI: app_v2.py
+# VERSI: app_v3.py
 import streamlit as st
 import json
 import os
 import time
+import hashlib
+import requests
 import google.generativeai as genai
 from google.api_core import exceptions as gexc
 from PIL import Image
@@ -78,13 +80,8 @@ def resize_image(img, max_side=1024):
     return img
 
 
-FALLBACK_ERRORS = (
-    gexc.ResourceExhausted,    # 429: kuota habis
-    gexc.DeadlineExceeded,     # timeout
-    gexc.ServiceUnavailable,   # 503: server sibuk
-    gexc.InternalServerError,  # 500
-    gexc.NotFound,             # 404: nama model tidak valid
-)
+# Error yang TIDAK perlu dicoba ke model lain (key salah, request salah, dll)
+FATAL_ERRORS = (gexc.InvalidArgument, gexc.Unauthenticated, gexc.PermissionDenied)
 
 
 def scan_surat_jalan(api_key, pil_images):
@@ -108,7 +105,10 @@ def scan_surat_jalan(api_key, pil_images):
                 request_options={"timeout": REQUEST_TIMEOUT},
             )
             return (resp.text or "").strip(), model_name
-        except FALLBACK_ERRORS as e:
+        except FATAL_ERRORS:
+            raise
+        except (gexc.GoogleAPICallError, requests.exceptions.RequestException) as e:
+            # 429 (REST: TooManyRequests), 404, 5xx, timeout -> coba model berikutnya
             last_error = e
             continue
 
@@ -134,8 +134,8 @@ def cari_di_master(name):
 # ---------------------------------------------------------
 # KONFIGURASI HALAMAN
 # ---------------------------------------------------------
-st.set_page_config(page_title="Sistem Surat Jalan Restoran v2", page_icon="📦", layout="centered")
-st.title("📦 Sistem Digitalisasi Surat Jalan Restoran (v2)")
+st.set_page_config(page_title="Sistem Surat Jalan Restoran v3", page_icon="📦", layout="centered")
+st.title("📦 Sistem Digitalisasi Surat Jalan Restoran (v3)")
 
 menu = st.sidebar.selectbox("Menu Navigasi", ["Pengecekan Surat Jalan", "Kelola Master Data"])
 
@@ -215,7 +215,13 @@ elif menu == "Pengecekan Surat Jalan":
                     t0 = time.time()
                     pil_images = [resize_image(Image.open(f)) for f in uploaded_files]
                     t_resize = time.time() - t0
-                    raw_text, model_dipakai = scan_surat_jalan(api_key, pil_images)
+                    kunci = hashlib.md5(b"".join(f.getvalue() for f in uploaded_files)).hexdigest()
+                    cache = st.session_state.setdefault("scan_cache", {})
+                    if kunci in cache:
+                        raw_text, model_dipakai = cache[kunci], "cache (tanpa kuota)"
+                    else:
+                        raw_text, model_dipakai = scan_surat_jalan(api_key, pil_images)
+                        cache[kunci] = raw_text
                     t_total = time.time() - t0
 
                     if not raw_text or "INVALID_SURAT_JALAN" in raw_text:
@@ -243,10 +249,13 @@ elif menu == "Pengecekan Surat Jalan":
                         f"Model: {model_dipakai} | Resize: {t_resize:.1f} dtk | Total: {t_total:.1f} dtk"
                     )
 
-                except gexc.ResourceExhausted:
-                    st.error("⏳ Kuota semua model habis. Tunggu 1 menit lalu coba lagi (atau besok kalau kuota harian).")
+                except (gexc.ResourceExhausted, gexc.TooManyRequests) as e:
+                    if "PerDay" in str(e):
+                        st.error("⏳ Kuota HARIAN gratis habis untuk semua model di MODEL_LIST. Reset sekitar jam 14.00 WIB. Alternatif: pakai API key dari project Google lain, atau aktifkan billing.")
+                    else:
+                        st.error("⏳ Batas per menit tercapai. Tunggu 1 menit lalu coba lagi.")
                     st.stop()
-                except gexc.DeadlineExceeded:
+                except (gexc.DeadlineExceeded, gexc.GatewayTimeout, requests.exceptions.Timeout):
                     st.error(f"⏱️ Semua model kelamaan merespons (lebih dari {REQUEST_TIMEOUT} detik per model). Coba lagi atau pakai foto yang lebih kecil.")
                     st.stop()
                 except gexc.NotFound:
