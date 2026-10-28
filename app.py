@@ -91,7 +91,7 @@ if menu == "Kelola Master Data":
             st.rerun()
 
 # ---------------------------------------------------------
-# TAB 2: PENGECEKAN SURAT JALAN (AI VISION + OPTIMASI KECEPATAN)
+# TAB 2: PENGECEKAN SURAT JALAN (AI VISION OPTIMIZED)
 # ---------------------------------------------------------
 elif menu == "Pengecekan Surat Jalan":
     st.header("📄 Scan & Validasi Surat Jalan")
@@ -108,49 +108,38 @@ elif menu == "Pengecekan Surat Jalan":
             st.warning("⚠️ Masukkan API Key terlebih dahulu untuk mengaktifkan fitur scan AI Vision.")
             st.stop()
 
-    uploaded_files = st.file_uploader(
-        "Upload foto surat jalan (bisa lebih dari satu halaman)", 
-        type=["jpg", "jpeg", "png"], 
-        accept_multiple_files=True
+    # Dioptimalkan: Menggunakan 1 file per proses agar payload ringan & cepat
+    uploaded_file = st.file_uploader(
+        "Upload 1 foto halaman surat jalan", 
+        type=["jpg", "jpeg", "png"]
     )
 
-    if uploaded_files:
+    if uploaded_file:
         genai.configure(api_key=api_key)
         
         if st.button("🔍 Proses & Scan Surat Jalan", type="primary"):
-            with st.spinner("AI sedang membaca dan memvalidasi dokumen surat jalan secara kilat..."):
+            with st.spinner("AI sedang membaca surat jalan secara kilat..."):
                 try:
-                    pil_images = []
-                    for f in uploaded_files:
-                        img = Image.open(f)
-                        # Optimasi: Resize otomatis gambar jika terlalu besar agar proses AI super cepat
-                        img.thumbnail((1024, 1024))
-                        pil_images.append(img)
+                    img = Image.open(uploaded_file)
+                    # Kompres resolusi otomatis agar pengiriman data instan
+                    img.thumbnail((1024, 1024))
                     
-                    # Prompt baru yang jauh lebih ringkas, padat, dan cepat diproses AI
                     prompt = (
-                        "Validasi apakah gambar ini Surat Jalan restoran yang sah. "
-                        "Jika bukan surat jalan, balas persis: INVALID_SURAT_JALAN. "
-                        "Jika valid, ekstrak daftar nama barang dan kuantitasnya (contoh kuantitas: '5 kg', '2 dus'). "
-                        "Output wajib JSON murni berupa list of dictionary dengan keys 'name' dan 'qty'. Contoh format: "
+                        "Ekstrak daftar barang dan kuantitasnya dari surat jalan ini. "
+                        "Format output wajib JSON murni berupa list of dictionary dengan keys 'name' dan 'qty'. Contoh: "
                         '[{"name": "Beras", "qty": "5 karung"}]'
                     )
                     
-                    # Menggunakan model gemini-3.8-flash dengan konfigurasi suhu rendah agar respons instan
                     model = genai.GenerativeModel('gemini-3.8-flash')
                     generation_config = {"temperature": 0.1}
                     
-                    content_payload = pil_images + [prompt]
-                    response = model.generate_content(content_payload, generation_config=generation_config)
+                    response = model.generate_content([img, prompt], generation_config=generation_config)
                     raw_text = response.text.strip()
                     
-                    if "INVALID_SURAT_JALAN" in raw_text or not raw_text:
-                        st.error("❌ Dokumen ditolak! Foto yang di-upload bukan merupakan Surat Jalan yang valid. Silakan upload ulang foto surat jalan yang benar.")
-                        if "scanned_items" in st.session_state:
-                            del st.session_state.scanned_items
+                    if not raw_text:
+                        st.error("❌ Gagal membaca dokumen. Silakan coba upload ulang.")
                         st.stop()
                     
-                    # Bersihkan markdown json jika terbawa
                     if "```json" in raw_text:
                         raw_text = raw_text.split("```json")[1].split("```")[0].strip()
                     elif "```" in raw_text:
@@ -158,7 +147,7 @@ elif menu == "Pengecekan Surat Jalan":
                         
                     scanned_items = json.loads(raw_text)
                     st.session_state.scanned_items = scanned_items
-                    st.success("✅ Surat jalan berhasil divalidasi dan diproses!")
+                    st.success("✅ Surat jalan berhasil diproses!")
                     
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat memproses AI Vision: {e}")
@@ -228,7 +217,7 @@ elif menu == "Pengecekan Surat Jalan":
                     key=f"int_{i}",
                     label_visibility="collapsed"
                 )
-                form_data[name] = {"value": val_int, "is_checked": val_int > 0}
+                form_data[name] = {"value": val_int, "status": f"{val_int} unit"}
             else:
                 radio_choice = cols[2].radio(
                     f"Status {name}",
@@ -237,16 +226,13 @@ elif menu == "Pengecekan Surat Jalan":
                     key=f"rad_{i}",
                     label_visibility="collapsed"
                 )
-                form_data[name] = {
-                    "value": radio_choice, 
-                    "is_checked": (radio_choice == "Lengkap")
-                }
+                form_data[name] = {"value": radio_choice, "status": radio_choice}
 
         st.divider()
         
         notes = st.text_area("Catatan / Notes Tambahan (Opsional)", placeholder="Tulis catatan jika ada kendala pengiriman...")
 
-        if st.button("🖨️ Cetak / Simpan Laporan PDF", type="primary"):
+        if st.button("🖨️ Selesaikan & Generate Laporan", type="primary"):
             error_found = False
             for name, data in form_data.items():
                 if data["value"] == "Pilih Status...":
@@ -254,7 +240,14 @@ elif menu == "Pengecekan Surat Jalan":
                     break
 
             if error_found:
-                st.error("🚨 Gagal Cetak! Masih ada bahan baku berstatus Radio Button yang **belum dipilih** (Lengkap / Tidak Ada). Harap lengkapi semua pilihan di atas!")
+                st.error("🚨 Gagal! Masih ada bahan baku berstatus Radio Button yang **belum dipilih** (Lengkap / Tidak Ada). Harap lengkapi semua pilihan di atas!")
             else:
-                st.success("✨ Laporan pengecekan berhasil divalidasi! Siap untuk dicetak ke PDF.")
-                st.json(form_data)
+                st.success("✨ Laporan pengecekan harian berhasil divalidasi!")
+                
+                # Menampilkan laporan fungsional yang rapi (bukan kode JSON mentah)
+                st.markdown("### 📋 Ringkasan Laporan Pengecekan")
+                for idx, (item_name, details) in enumerate(form_data.items(), 1):
+                    st.write(f"{idx}. **{item_name}** — Status: `{details['status']}`")
+                
+                if notes:
+                    st.write(f"**Catatan:** {notes}")
