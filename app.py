@@ -3,6 +3,12 @@ import json
 import os
 import google.generativeai as genai
 from PIL import Image
+import tempfile
+
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # ---------------------------------------------------------
 # KONFIGURASI FILE MASTER DATA (JSON)
@@ -35,6 +41,72 @@ def save_master_data(data):
 
 if "master_data" not in st.session_state:
     st.session_state.master_data = load_master_data()
+
+# ---------------------------------------------------------
+# FUNGSI GENERATE PDF MENGGUNAKAN REPORTLAB
+# ---------------------------------------------------------
+def create_pdf_reportlab(form_data, notes):
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    doc = SimpleDocTemplate(tmp_file.name, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=16,
+        alignment=1, # Center
+        spaceAfter=6
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'SubtitleStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        alignment=1,
+        spaceAfter=20
+    )
+    
+    elements.append(Paragraph("Laporan Pengecekan Surat Jalan Restoran", title_style))
+    elements.append(Paragraph("Dokumen Validasi & Pengecekan Fisik Harian", subtitle_style))
+    
+    # Tabel Data
+    table_data = [["No", "Nama Bahan Baku", "Status / Jumlah Fisik"]]
+    
+    for idx, (name, details) in enumerate(form_data.items(), 1):
+        table_data.append([str(idx), str(name), str(details['status'])])
+        
+    t = Table(table_data, colWidths=[40, 260, 240])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#2C3E50")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,0), 10),
+        ('BOTTOMPADDING', (0,0), (-1,0), 8),
+        ('TOPPADDING', (0,0), (-1,0), 8),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#F8F9F9")]),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#BDC3C7")),
+        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,1), (-1,-1), 10),
+        ('BOTTOMPADDING', (0,1), (-1,-1), 6),
+        ('TOPPADDING', (0,1), (-1,-1), 6),
+    ]))
+    
+    elements.append(t)
+    
+    # Catatan Tambahan
+    if notes:
+        elements.append(Spacer(1, 15))
+        elements.append(Paragraph("<b>Catatan Tambahan:</b>", styles['Normal']))
+        elements.append(Spacer(1, 4))
+        elements.append(Paragraph(notes, styles['Normal']))
+        
+    doc.build(elements)
+    return tmp_file.name
 
 # ---------------------------------------------------------
 # KONFIGURASI HALAMAN STREAMLIT
@@ -91,7 +163,7 @@ if menu == "Kelola Master Data":
             st.rerun()
 
 # ---------------------------------------------------------
-# TAB 2: PENGECEKAN SURAT JALAN (AI VISION OPTIMIZED)
+# TAB 2: PENGECEKAN SURAT JALAN (2 FOTO + VALIDASI 10MB + PDF REPORTLAB)
 # ---------------------------------------------------------
 elif menu == "Pengecekan Surat Jalan":
     st.header("📄 Scan & Validasi Surat Jalan")
@@ -108,21 +180,38 @@ elif menu == "Pengecekan Surat Jalan":
             st.warning("⚠️ Masukkan API Key terlebih dahulu untuk mengaktifkan fitur scan AI Vision.")
             st.stop()
 
-    # Dioptimalkan: Menggunakan 1 file per proses agar payload ringan & cepat
-    uploaded_file = st.file_uploader(
-        "Upload 1 foto halaman surat jalan", 
-        type=["jpg", "jpeg", "png"]
+    uploaded_files = st.file_uploader(
+        "Upload foto surat jalan (Maksimal 2 halaman, ukuran file max 10 MB per file)", 
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True
     )
 
-    if uploaded_file:
+    # Validasi ketat ukuran file maksimal 10 MB dan batasan maksimal 2 file
+    file_too_large = False
+    MAX_SIZE_MB = 10
+    
+    if uploaded_files:
+        if len(uploaded_files) > 2:
+            st.warning("⚠️ Anda meng-upload lebih dari 2 foto. Hanya 2 foto pertama yang akan diproses.")
+            uploaded_files = uploaded_files[:2]
+            
+        for f in uploaded_files:
+            file_size_mb = f.size / (1024 * 1024)
+            if file_size_mb > MAX_SIZE_MB:
+                st.error(f"❌ File '{f.name}' berukuran {file_size_mb:.2f} MB. Batas maksimal ukuran file adalah {MAX_SIZE_MB} MB! Proses dihentikan.")
+                file_too_large = True
+
+    if uploaded_files and not file_too_large:
         genai.configure(api_key=api_key)
         
         if st.button("🔍 Proses & Scan Surat Jalan", type="primary"):
             with st.spinner("AI sedang membaca surat jalan secara kilat..."):
                 try:
-                    img = Image.open(uploaded_file)
-                    # Kompres resolusi otomatis agar pengiriman data instan
-                    img.thumbnail((1024, 1024))
+                    pil_images = []
+                    for f in uploaded_files:
+                        img = Image.open(f)
+                        img.thumbnail((1024, 1024))
+                        pil_images.append(img)
                     
                     prompt = (
                         "Ekstrak daftar barang dan kuantitasnya dari surat jalan ini. "
@@ -133,7 +222,8 @@ elif menu == "Pengecekan Surat Jalan":
                     model = genai.GenerativeModel('gemini-3.8-flash')
                     generation_config = {"temperature": 0.1}
                     
-                    response = model.generate_content([img, prompt], generation_config=generation_config)
+                    content_payload = pil_images + [prompt]
+                    response = model.generate_content(content_payload, generation_config=generation_config)
                     raw_text = response.text.strip()
                     
                     if not raw_text:
@@ -232,7 +322,7 @@ elif menu == "Pengecekan Surat Jalan":
         
         notes = st.text_area("Catatan / Notes Tambahan (Opsional)", placeholder="Tulis catatan jika ada kendala pengiriman...")
 
-        if st.button("🖨️ Selesaikan & Generate Laporan", type="primary"):
+        if st.button("🖨️ Selesaikan & Generate Laporan PDF", type="primary"):
             error_found = False
             for name, data in form_data.items():
                 if data["value"] == "Pilih Status...":
@@ -244,10 +334,13 @@ elif menu == "Pengecekan Surat Jalan":
             else:
                 st.success("✨ Laporan pengecekan harian berhasil divalidasi!")
                 
-                # Menampilkan laporan fungsional yang rapi (bukan kode JSON mentah)
-                st.markdown("### 📋 Ringkasan Laporan Pengecekan")
-                for idx, (item_name, details) in enumerate(form_data.items(), 1):
-                    st.write(f"{idx}. **{item_name}** — Status: `{details['status']}`")
-                
-                if notes:
-                    st.write(f"**Catatan:** {notes}")
+                # Buat PDF menggunakan ReportLab dan tampilkan tombol download
+                pdf_path = create_pdf_reportlab(form_data, notes)
+                with open(pdf_path, "rb") as pdf_file:
+                    st.download_button(
+                        label="📥 Download Laporan (PDF)",
+                        data=pdf_file,
+                        file_name="laporan_surat_jalan.pdf",
+                        mime="application/pdf",
+                        type="primary"
+                    )
